@@ -5,7 +5,7 @@ import axios from 'axios';
 // --- TYPE DEFINITIONS ---
 interface UploadAreaProps { onExtract: (text: string) => void; darkMode: boolean; }
 interface FlashcardsProps { cards: string[]; onFlip: () => void; }
-interface QuizProps { quizBlocks: QuizItem[]; onCorrectAnswer: () => void; }
+interface QuizProps { quizBlocks: QuizItem[]; onSubmit: (correctCount: number, wrongItems: string[]) => void; }
 interface StudyPlanProps { plan: string; }
 interface QuizItem {
   id: string;
@@ -95,25 +95,29 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onFlip }) => {
   );
 };
 
-// Quiz
-const Quiz: React.FC<QuizProps> = ({ quizBlocks, onCorrectAnswer }) => {
+// Quiz with Submit
+const Quiz: React.FC<QuizProps> = ({ quizBlocks, onSubmit }) => {
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [answeredCorrectly, setAnsweredCorrectly] = useState<Set<string>>(new Set());
 
   if (quizBlocks.length === 0) return null;
 
   const handleAnswerChange = (id: string, answer: string) => {
     setAnswers(prev => ({ ...prev, [id]: answer }));
-    const quizItem = quizBlocks.find(q => q.id === id);
-    if (quizItem && answer === quizItem.correctAnswer && !answeredCorrectly.has(id)) {
-      setAnsweredCorrectly(prev => new Set(prev).add(id));
-      onCorrectAnswer();
-    }
+  };
+
+  const handleSubmit = () => {
+    let correctCount = 0;
+    const wrongItems: string[] = [];
+    quizBlocks.forEach(q => {
+      if (answers[q.id] === q.correctAnswer) correctCount++;
+      else wrongItems.push(q.question);
+    });
+    onSubmit(correctCount, wrongItems);
   };
 
   return (
     <div className="mt-8 p-6 border border-purple-300 rounded-2xl bg-white shadow-lg">
-      <h2 className="text-xl font-bold text-purple-800">3. Quiz ({answeredCorrectly.size}/{quizBlocks.length} correct)</h2>
+      <h2 className="text-xl font-bold text-purple-800">3. Quiz</h2>
       {quizBlocks.map((q, idx) => (
         <div key={q.id} className="p-3 border-b last:border-b-0">
           <p className="font-semibold text-purple-700">{idx + 1}. {q.question}</p>
@@ -126,17 +130,43 @@ const Quiz: React.FC<QuizProps> = ({ quizBlocks, onCorrectAnswer }) => {
           ))}
         </div>
       ))}
+      <div className="text-center mt-4">
+        <button onClick={handleSubmit} className="px-6 py-2 bg-purple-600 text-white rounded-full hover:bg-purple-700">
+          Submit Quiz
+        </button>
+      </div>
     </div>
   );
 };
 
-// StudyPlan
+// StudyPlan - Card version
 const StudyPlan: React.FC<StudyPlanProps> = ({ plan }) => {
   if (!plan) return null;
+
+  // Parse JSON safely in case it's a string
+  let planData: { item: string; steps: string[] }[] = [];
+  try {
+    const parsed = typeof plan === 'string' ? JSON.parse(plan) : plan;
+    planData = parsed.plan || [];
+  } catch (err) {
+    console.error('Failed to parse plan JSON', err);
+  }
+
   return (
-    <div className="mt-8 p-6 border border-purple-400 rounded-2xl bg-gradient-to-r from-purple-50 to-purple-100 shadow-lg">
-      <h2 className="text-2xl font-bold text-purple-700">Personalized Study Plan</h2>
-      <pre className="whitespace-pre-wrap p-4 bg-white border rounded-xl mt-4">{plan}</pre>
+    <div className="mt-8 space-y-4">
+      <h2 className="text-2xl font-bold text-purple-700 mb-4">Personalized Study Plan</h2>
+      <div className="grid md:grid-cols-2 gap-4">
+        {planData.map((item, idx) => (
+          <div key={idx} className="p-4 rounded-2xl shadow-lg bg-white dark:bg-gray-800 border border-purple-200 dark:border-purple-700 transition-colors">
+            <h3 className="font-semibold text-purple-800 dark:text-purple-400 mb-2">{item.item}</h3>
+            <ul className="list-disc list-inside space-y-1 text-gray-700 dark:text-gray-300">
+              {item.steps.map((step, i) => (
+                <li key={i}>{step}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
@@ -144,18 +174,18 @@ const StudyPlan: React.FC<StudyPlanProps> = ({ plan }) => {
 // DailyGoals
 const DailyGoals: React.FC<{
   flashcardsDone: number;
-  quizzesDone: number;
+  questionsDone: number;
   totalFlashcards: number;
-  totalQuizzes: number;
+  totalQuestions: number;
   darkMode: boolean;
   setDarkMode: (val: boolean) => void;
   setGoalFlashcards: (val: number) => void;
-  setGoalQuizzes: (val: number) => void;
+  setGoalQuestions: (val: number) => void;
   goalFlashcards: number;
-  goalQuizzes: number;
-}> = ({ flashcardsDone, quizzesDone, totalFlashcards, totalQuizzes, darkMode, setDarkMode, setGoalFlashcards, setGoalQuizzes, goalFlashcards, goalQuizzes }) => {
-  const totalDone = flashcardsDone + quizzesDone;
-  const totalGoal = goalFlashcards + goalQuizzes;
+  goalQuestions: number;
+}> = ({ flashcardsDone, questionsDone, totalFlashcards, totalQuestions, darkMode, setDarkMode, setGoalFlashcards, setGoalQuestions, goalFlashcards, goalQuestions }) => {
+  const totalDone = flashcardsDone + questionsDone;
+  const totalGoal = goalFlashcards + goalQuestions;
   const progress = totalGoal ? Math.min(100, (totalDone / totalGoal) * 100) : 0;
 
   return (
@@ -175,7 +205,7 @@ const DailyGoals: React.FC<{
       </div>
       <div>
         <label className="block font-semibold">Questions to solve:</label>
-        <input type="number" min={0} value={goalQuizzes} onChange={e => setGoalQuizzes(Number(e.target.value))}
+        <input type="number" min={0} value={goalQuestions} onChange={e => setGoalQuestions(Number(e.target.value))}
                className={`w-full p-2 rounded border focus:outline-none focus:ring-2 focus:ring-purple-500
                  ${darkMode ? 'bg-gray-700 text-white border-gray-600 placeholder-gray-300' : 'bg-white text-gray-900 border-gray-300'}`}/>
       </div>
@@ -200,9 +230,9 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [flashcardsDone, setFlashcardsDone] = useState(0);
-  const [quizzesDone, setQuizzesDone] = useState(0);
+  const [questionsDone, setQuestionsDone] = useState(0);
   const [goalFlashcards, setGoalFlashcards] = useState(0);
-  const [goalQuizzes, setGoalQuizzes] = useState(0);
+  const [goalQuestions, setGoalQuestions] = useState(0);
 
   const handleExtracted = useCallback((text: string) => {
     setMaterialText(text);
@@ -211,73 +241,59 @@ const App: React.FC = () => {
     setQuizBlocks([]);
     setPlan('');
     setFlashcardsDone(0);
-    setQuizzesDone(0);
+    setQuestionsDone(0);
   }, []);
 
- const handleProcess = async () => {
-  if (!materialText) return;
-  setIsProcessing(true);
+  const handleProcess = async () => {
+    if (!materialText) return;
+    setIsProcessing(true);
 
-  const sendRequest = async (): Promise<any> => {
-    const resp = await axios.post('/process', { text: materialText });
-    return resp.data.output;
-  };
+    const sendRequest = async (): Promise<any> => {
+      const resp = await axios.post('/process', { text: materialText });
+      return resp.data.output;
+    };
 
-  const safeParseJSON = (str: string) => {
-    try {
-      return JSON.parse(str);
-    } catch (err) {
-      console.warn('Invalid JSON, attempting fix...', err);
-
-      // Common fixes: remove trailing commas, escape inner quotes, strip newlines
-      let fixed = str
-        .replace(/,\s*}/g, '}')
-        .replace(/,\s*]/g, ']')
-        .replace(/(\r?\n|\r)/g, ' ')
-        .replace(/([\{\[,])\s*"/g, '$1"') // fix spacing before quotes
-        .replace(/([^\\])"/g, '$1\\"');   // escape quotes inside strings
-
-      try {
-        return JSON.parse(fixed);
-      } catch (e) {
-        console.error('Failed to fix JSON, returning empty defaults.', e);
-        return { summary: '', flashcards: [], quiz: [] };
+    const safeParseJSON = (str: string) => {
+      try { return JSON.parse(str); } catch (err) {
+        console.warn('Invalid JSON, attempting fix...', err);
+        let fixed = str.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']').replace(/(\r?\n|\r)/g, ' ');
+        try { return JSON.parse(fixed); } catch (e) { return { summary: '', flashcards: [], quiz: [] }; }
       }
+    };
+
+    try {
+      let output = await sendRequest();
+      let jsonOutput = safeParseJSON(output);
+
+      if (!jsonOutput || (!jsonOutput.summary && !jsonOutput.flashcards && !jsonOutput.quiz)) {
+        output = await sendRequest();
+        jsonOutput = safeParseJSON(output);
+      }
+
+      setSummary(jsonOutput.summary || '');
+      setFlashcards(jsonOutput.flashcards?.map((f: any) => `${f.question}::${f.answer}`) || []);
+      setQuizBlocks(
+        jsonOutput.quiz?.map((q: any, idx: number) => ({
+          id: `q${idx}-${Math.random()}`,
+          question: q.question,
+          options: q.options,
+          correctAnswer: q.correctAnswer,
+        })) || []
+      );
+    } catch (err) {
+      console.error('Processing failed after retry:', err);
+      setSummary('Error processing material. Check console and server logs.');
+      setFlashcards([]);
+      setQuizBlocks([]);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  try {
-    let output = await sendRequest();
-    let jsonOutput = safeParseJSON(output);
-
-    // Retry once if output seems completely broken
-    if (!jsonOutput || (!jsonOutput.summary && !jsonOutput.flashcards && !jsonOutput.quiz)) {
-      console.warn('Retrying processing...');
-      output = await sendRequest();
-      jsonOutput = safeParseJSON(output);
-    }
-
-    setSummary(jsonOutput.summary || '');
-    setFlashcards(
-      jsonOutput.flashcards?.map((f: any) => `${f.question}::${f.answer}`) || []
-    );
-    setQuizBlocks(
-      jsonOutput.quiz?.map((q: any, idx: number) => ({
-        id: `q${idx}-${Math.random()}`,
-        question: q.question,
-        options: q.options,
-        correctAnswer: q.correctAnswer,
-      })) || []
-    );
-  } catch (err) {
-    console.error('Processing failed after retry:', err);
-    setSummary('Error processing material. Check console and server logs.');
-    setFlashcards([]);
-    setQuizBlocks([]);
-  } finally {
-    setIsProcessing(false);
-  }
-};
+  const handleQuizSubmit = (correctCount: number, wrongItems: string[]) => {
+    setQuestionsDone(prev => prev + correctCount);
+    handlePlan(wrongItems);
+  };
 
   const handlePlan = async (wrongItems: string[]) => {
     if (!wrongItems.length) {
@@ -313,15 +329,15 @@ const App: React.FC = () => {
           <div className="md:w-80">
             <DailyGoals
               flashcardsDone={flashcardsDone}
-              quizzesDone={quizzesDone}
+              questionsDone={questionsDone}
               totalFlashcards={flashcards.length}
-              totalQuizzes={quizBlocks.length}
+              totalQuestions={quizBlocks.length}
               darkMode={darkMode}
               setDarkMode={setDarkMode}
               setGoalFlashcards={setGoalFlashcards}
-              setGoalQuizzes={setGoalQuizzes}
+              setGoalQuestions={setGoalQuestions}
               goalFlashcards={goalFlashcards}
-              goalQuizzes={goalQuizzes}
+              goalQuestions={goalQuestions}
             />
           </div>
         </div>
@@ -336,7 +352,7 @@ const App: React.FC = () => {
         )}
 
         {flashcards.length > 0 && <Flashcards cards={flashcards} onFlip={() => setFlashcardsDone(prev => prev + 1)} />}
-        {quizBlocks.length > 0 && <Quiz quizBlocks={quizBlocks} onCorrectAnswer={() => setQuizzesDone(prev => prev + 1)} />}
+        {quizBlocks.length > 0 && <Quiz quizBlocks={quizBlocks} onSubmit={handleQuizSubmit} />}
         {plan && <StudyPlan plan={plan} />}
       </div>
 
